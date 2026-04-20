@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Breinbreker</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: Georgia, 'Times New Roman', serif;
+    background: #fafaf7;
+    color: #111;
+    margin: 0;
+    padding: 2rem 1rem 4rem;
+    min-height: 100vh;
+  }
+  main {
+    max-width: 42rem;
+    margin: 0 auto;
+    text-align: center;
+  }
+  h1 {
+    font-size: 2.5rem;
+    letter-spacing: 0.1em;
+    margin: 0 0 0.25rem;
+  }
+  .subtitle {
+    color: #555;
+    font-size: 1.15rem;
+    margin: 0 0 2.5rem;
+  }
+  #puzzle-container {
+    min-height: 16rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 2rem;
+  }
+  .puzzle {
+    display: inline-grid;
+    grid-template-columns: repeat(5, auto);
+    gap: 0.6rem 1.2rem;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 2.2rem;
+    font-weight: 600;
+    align-items: center;
+    justify-items: center;
+  }
+  .cell {
+    min-width: 3.2em;
+    text-align: center;
+  }
+  .op {
+    color: #555;
+    font-weight: 700;
+  }
+  .buttons {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: 2rem;
+  }
+  button {
+    font-size: 1.25rem;
+    padding: 0.75rem 1.5rem;
+    border: 2px solid #111;
+    background: #fff;
+    color: #111;
+    cursor: pointer;
+    border-radius: 0.3rem;
+    font-family: inherit;
+  }
+  button:hover {
+    background: #111;
+    color: #fff;
+  }
+  .solution {
+    margin-top: 1rem;
+    padding: 1.5rem;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 0.5rem;
+    text-align: left;
+  }
+  .solution h2 {
+    margin: 0 0 1rem;
+    font-size: 1.4rem;
+    text-align: center;
+  }
+  .mapping {
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 1.25rem;
+    line-height: 1.8;
+    text-align: center;
+    margin-bottom: 1.5rem;
+  }
+  .mapping span {
+    display: inline-block;
+    margin: 0 0.6rem;
+    white-space: nowrap;
+  }
+  .numeric-puzzle {
+    display: flex;
+    justify-content: center;
+  }
+  .hidden { display: none; }
+  .error {
+    color: #a00;
+    padding: 1rem;
+    font-size: 1.1rem;
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>BREINBREKER</h1>
+  <p class="subtitle">Gelijke letters zijn gelijke cijfers.</p>
+  <div id="puzzle-container">Laden...</div>
+  <div class="buttons">
+    <button id="new-btn" disabled>Nieuwe breinbreker</button>
+    <button id="show-btn" disabled>Toon oplossing</button>
+  </div>
+  <div id="solution-container" class="solution hidden"></div>
+</main>
+<script>
+(async function() {
+  const puzzleEl = document.getElementById('puzzle-container');
+  const solutionEl = document.getElementById('solution-container');
+  const newBtn = document.getElementById('new-btn');
+  const showBtn = document.getElementById('show-btn');
+
+  let pool = [];
+  let current = null;
+  let solutionVisible = false;
+
+  function renderGrid(grid, rowOps, colOps, letterToDigit) {
+    const render = cell => letterToDigit
+      ? [...cell].map(ch => letterToDigit[ch]).join('')
+      : cell;
+
+    const parts = [];
+    for (let r = 0; r < 3; r++) {
+      parts.push(
+        `<div class="cell">${render(grid[r][0])}</div>`,
+        `<div class="op">${rowOps[r]}</div>`,
+        `<div class="cell">${render(grid[r][1])}</div>`,
+        `<div class="op">=</div>`,
+        `<div class="cell">${render(grid[r][2])}</div>`,
+      );
+      if (r < 2) {
+        const between = r === 0 ? colOps : ['=', '=', '='];
+        parts.push(
+          `<div class="op">${between[0]}</div>`,
+          `<div></div>`,
+          `<div class="op">${between[1]}</div>`,
+          `<div></div>`,
+          `<div class="op">${between[2]}</div>`,
+        );
+      }
+    }
+    return `<div class="puzzle">${parts.join('')}</div>`;
+  }
+
+  function renderMapping(solution) {
+    const letters = Object.keys(solution).sort();
+    return letters.map(l => `<span>${l} = ${solution[l]}</span>`).join('');
+  }
+
+  function showPuzzle() {
+    puzzleEl.innerHTML = renderGrid(current.grid, current.row_ops, current.col_ops, null);
+    solutionVisible = false;
+    solutionEl.classList.add('hidden');
+    showBtn.textContent = 'Toon oplossing';
+  }
+
+  function toggleSolution() {
+    solutionVisible = !solutionVisible;
+    if (solutionVisible) {
+      solutionEl.innerHTML = `
+        <h2>Oplossing</h2>
+        <div class="mapping">${renderMapping(current.solution)}</div>
+        <div class="numeric-puzzle">${renderGrid(current.grid, current.row_ops, current.col_ops, current.solution)}</div>
+      `;
+      solutionEl.classList.remove('hidden');
+      showBtn.textContent = 'Verberg oplossing';
+    } else {
+      solutionEl.classList.add('hidden');
+      showBtn.textContent = 'Toon oplossing';
+    }
+  }
+
+  function pickNew() {
+    if (pool.length === 0) return;
+    const idx = Math.floor(Math.random() * pool.length);
+    current = pool[idx];
+    showPuzzle();
+  }
+
+  try {
+    const res = await fetch('puzzles.json', { cache: 'no-cache' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    pool = data.puzzles || [];
+    if (pool.length === 0) throw new Error('Geen puzzels gevonden');
+
+    newBtn.disabled = false;
+    showBtn.disabled = false;
+    newBtn.addEventListener('click', pickNew);
+    showBtn.addEventListener('click', toggleSolution);
+    pickNew();
+  } catch (err) {
+    puzzleEl.innerHTML = `<div class="error">Kan de puzzels niet laden: ${err.message}</div>`;
+  }
+})();
+</script>
+</body>
+</html>
